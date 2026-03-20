@@ -297,7 +297,9 @@ export function ConsumerPage({ tableName: producedTable, streamedTopic }) {
                         <button
                           onClick={async () => {
                             if (!window.confirm(`Clear all rows from "${name}"?`)) return
-                            await api.truncate(name, cfg?.kafka_brokers, selectedTopic)
+                            await api.truncate(name)
+                            setQueryResult(null)
+                            setSql(`SELECT * FROM \`${name}\` LIMIT 20`)
                             fetchTables()
                             fetchTopicTables()
                           }}

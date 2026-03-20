@@ -68,7 +68,8 @@ func HandleConsumerStart(s *AppState) http.HandlerFunc {
 		s.consumer.table = ""
 		s.mu.Unlock()
 
-		go runConsumer(ctx, s, hub, req)
+		runID := s.GetLastRunID(req.KafkaTopic)
+		go runConsumer(ctx, s, hub, req, runID)
 
 		jsonOK(w, map[string]string{"status": "started"})
 	}
@@ -141,13 +142,14 @@ func HandleConsumerStream(s *AppState) http.HandlerFunc {
 }
 
 type incomingRow struct {
+	RunID   string   `json:"run_id"`
 	Table   string   `json:"table"`
 	Headers []string `json:"headers"`
 	Types   []string `json:"types"`
 	Values  []string `json:"values"`
 }
 
-func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startConsumerRequest) {
+func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startConsumerRequest, expectedRunID string) {
 	logger := log.New(internal.NewHubWriter(hub, "info"), "", 0)
 	errLogger := log.New(internal.NewHubWriter(hub, "error"), "", 0)
 	setStatus := func(st workerStatus) {
@@ -178,11 +180,17 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 	})
 	defer reader.Close()
 	logger.Printf("consuming from topic %q (group=%s)", req.KafkaTopic, groupID)
+	if expectedRunID != "" {
+		logger.Printf("filtering to run_id=%s", expectedRunID)
+	} else {
+		logger.Printf("warn: no run_id set — will consume all messages on topic")
+	}
 
 	tableCreated := map[string]bool{}
 	tableSkipLogged := map[string]bool{}
 	batch := []incomingRow{}
 	totalInserted := 0
+	skippedRunID := 0
 
 	flush := func() {
 		if len(batch) == 0 {
@@ -235,22 +243,22 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	// emptyTimeout: if no message arrives within 8s the topic is likely empty.
-	emptyTimer := time.NewTimer(8 * time.Second)
-	defer emptyTimer.Stop()
 	hasRead := false
+	startedAt := time.Now()
 
 loop:
 	for {
 		select {
 		case m := <-msgCh:
-			if !hasRead {
-				emptyTimer.Stop() // first message received — cancel empty-topic timeout
-				hasRead = true
-			}
+			hasRead = true
 			var row incomingRow
 			if err := json.Unmarshal(m.Value, &row); err != nil {
 				errLogger.Printf("unmarshal error: %v", err)
+				continue
+			}
+			// Skip messages from previous producer runs.
+			if expectedRunID != "" && row.RunID != expectedRunID {
+				skippedRunID++
 				continue
 			}
 			if !tableCreated[row.Table] {
@@ -270,14 +278,18 @@ loop:
 		case <-ticker.C:
 			flush()
 			if hasRead && reader.Stats().Lag == 0 {
+				if skippedRunID > 0 {
+					logger.Printf("skipped %d messages from previous producer runs", skippedRunID)
+				}
 				logger.Printf("caught up — no more messages in topic")
 				break loop
 			}
-
-		case <-emptyTimer.C:
-			errLogger.Printf("no messages received after 8s — topic may be empty or unreachable")
-			setStatus(StatusError)
-			return
+			// If no message received within 15s the topic is likely empty or unreachable.
+			if !hasRead && time.Since(startedAt) > 15*time.Second {
+				errLogger.Printf("no messages received after 15s — topic may be empty, produce first")
+				setStatus(StatusError)
+				return
+			}
 
 		case err := <-readErr:
 			if ctx.Err() != nil {

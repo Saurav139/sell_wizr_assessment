@@ -1,14 +1,10 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
-
-	"github.com/segmentio/kafka-go"
 )
 
 type queryRequest struct {
@@ -100,9 +96,7 @@ func HandleTruncate(s *AppState) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Table        string   `json:"table"`
-			KafkaBrokers []string `json:"kafka_brokers"`
-			KafkaTopic   string   `json:"kafka_topic"`
+			Table string `json:"table"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Table == "" {
 			jsonError(w, "table name required", http.StatusBadRequest)
@@ -115,41 +109,12 @@ func HandleTruncate(s *AppState) http.HandlerFunc {
 			jsonError(w, "no database connection", http.StatusServiceUnavailable)
 			return
 		}
-
-		// Drop the MySQL table entirely so schema is also reset on re-ingest.
+		// DROP instead of TRUNCATE so the schema is also reset — the consumer
+		// recreates the table fresh from the Kafka message types on next ingest.
 		if _, err := db.ExecContext(r.Context(), fmt.Sprintf("DROP TABLE IF EXISTS `%s`", req.Table)); err != nil {
 			jsonError(w, "drop table failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		// Delete the Kafka topic so the producer recreates it fresh on the next
-		// run. This prevents stale / accumulated messages from being re-consumed.
-		if req.KafkaTopic != "" && len(req.KafkaBrokers) > 0 {
-			client := &kafka.Client{Addr: kafka.TCP(req.KafkaBrokers...)}
-			resp, err := client.DeleteTopics(context.Background(), &kafka.DeleteTopicsRequest{
-				Addr:   kafka.TCP(req.KafkaBrokers...),
-				Topics: []string{req.KafkaTopic},
-			})
-			if err != nil {
-				log.Printf("warn: could not delete topic %q: %v", req.KafkaTopic, err)
-			} else {
-				for topic, topicErr := range resp.Errors {
-					if topicErr != nil {
-						log.Printf("warn: delete topic %q: %v", topic, topicErr)
-					}
-				}
-			}
-		}
-
-		// Remove from in-memory topic→tables map.
-		if req.KafkaTopic != "" {
-			s.mu.Lock()
-			if s.topicTables[req.KafkaTopic] != nil {
-				delete(s.topicTables[req.KafkaTopic], req.Table)
-			}
-			s.mu.Unlock()
-		}
-
 		jsonOK(w, map[string]string{"status": "ok"})
 	}
 }

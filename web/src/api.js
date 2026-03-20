@@ -33,6 +33,6 @@ export const api = {
 
   query: (sql) => post('/query', { sql }),
   tables: () => get('/tables'),
-  truncate: (table, kafkaBrokers, kafkaTopic) => post('/truncate', { table, kafka_brokers: kafkaBrokers, kafka_topic: kafkaTopic }),
+  truncate: (table) => post('/truncate', { table }),
   topicTables: () => get('/topic-tables'),
 }

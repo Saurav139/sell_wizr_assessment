@@ -51,7 +51,7 @@ export function UrlEntryPage({ onSuccess }) {
           Fetch a URL
         </h1>
         <p style={{ fontSize: 15, color: '#7B7E9A', marginBottom: 36, maxWidth: 480, lineHeight: 1.6 }}>
-          Point at any page with HTML tables — we'll extract, parse rowspan &amp; colspan, and infer a schema automatically.
+          Point at any page with HTML tables, we'll extract, parse rowspan &amp; colspan, and infer a schema automatically.
         </p>
 
         {/* URL input */}

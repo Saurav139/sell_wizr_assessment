@@ -36,6 +36,21 @@ type AppState struct {
 	producer    workerState
 	consumer    workerState
 	topicTables map[string]map[string]bool // topic → set of table names produced to it
+	lastRunID   map[string]string          // topic → last producer run ID
+}
+
+// SetLastRunID records the run ID for a topic.
+func (s *AppState) SetLastRunID(topic, runID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastRunID[topic] = runID
+}
+
+// GetLastRunID returns the last producer run ID for a topic.
+func (s *AppState) GetLastRunID(topic string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastRunID[topic]
 }
 
 func NewAppState() *AppState {
@@ -43,6 +58,7 @@ func NewAppState() *AppState {
 		producer:    workerState{status: StatusIdle, hub: internal.NewHub()},
 		consumer:    workerState{status: StatusIdle, hub: internal.NewHub()},
 		topicTables: make(map[string]map[string]bool),
+		lastRunID:   make(map[string]string),
 	}
 }
 

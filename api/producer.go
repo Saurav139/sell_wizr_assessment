@@ -26,6 +26,7 @@ type startProducerRequest struct {
 }
 
 type kafkaRow struct {
+	RunID   string   `json:"run_id"` // unique per producer invocation
 	Table   string   `json:"table"`
 	Headers []string `json:"headers"`
 	Types   []string `json:"types"`
@@ -170,10 +171,13 @@ func runProducer(ctx context.Context, s *AppState, hub *internal.Hub, req startP
 		s.producer.status = st
 		s.mu.Unlock()
 	}
+	defer hub.Close()
 
-	defer func() {
-		hub.Close()
-	}()
+	// Unique ID for this produce run — stamped on every message so the
+	// consumer can filter to only this batch and ignore accumulated history.
+	runID := fmt.Sprintf("%d", time.Now().UnixNano())
+	s.SetLastRunID(req.KafkaTopic, runID)
+	logger.Printf("run_id=%s", runID)
 
 	if err := ensureCompactTopic(req.KafkaBrokers, req.KafkaTopic); err != nil {
 		logger.Printf("warn: could not set compact policy on topic: %v", err)
