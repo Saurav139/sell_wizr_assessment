@@ -1,0 +1,28 @@
+# Go binaries
+table-streamer
+/cmd/server/server
+/cmd/producer/producer
+/cmd/consumer/consumer
+
+# Environment — copy .env.example and fill in your values
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Frontend build output (run `make dist` to rebuild)
+web/dist/
+web/node_modules/
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
