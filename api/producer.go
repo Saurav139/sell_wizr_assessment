@@ -269,7 +269,7 @@ func runProducer(ctx context.Context, s *AppState, hub *internal.Hub, req startP
 		default:
 		}
 
-		msg := kafkaRow{Table: req.TableName, Headers: headers, Types: types, Values: internal.CastRow(row, types)}
+		msg := kafkaRow{RunID: runID, Table: req.TableName, Headers: headers, Types: types, Values: internal.CastRow(row, types)}
 		data, err := json.Marshal(msg)
 		if err != nil {
 			addErrors(1)

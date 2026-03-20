@@ -29,7 +29,6 @@ export function ConsumerPage({ tableName: producedTable, streamedTopic }) {
   }
 
   useEffect(() => {
-    fetchTables()
     fetchTopicTables()
     api.config().then(c => {
       setCfg(c)

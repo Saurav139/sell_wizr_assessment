@@ -184,7 +184,7 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 	if expectedRunID != "" {
 		logger.Printf("filtering to run_id=%s", expectedRunID)
 	} else {
-		logger.Printf("warn: no run_id set — will consume all messages on topic")
+		logger.Printf("no run_id set — consuming all messages (duplicates skipped via INSERT IGNORE)")
 	}
 
 	tableCreated  := map[string]bool{}
