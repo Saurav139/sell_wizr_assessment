@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -21,13 +22,13 @@ func Fetch(url string, maxRetries int) ([]byte, error) {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("attempt %d failed: %v\n", i+1, err)
+			log.Printf("attempt %d failed: %v", i+1, err)
 			continue
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
-			fmt.Printf("attempt %d: status %d\n", i+1, resp.StatusCode)
+			log.Printf("attempt %d: status %d", i+1, resp.StatusCode)
 			continue
 		}
 

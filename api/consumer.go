@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -146,7 +147,7 @@ type incomingRow struct {
 	Table   string   `json:"table"`
 	Headers []string `json:"headers"`
 	Types   []string `json:"types"`
-	Values  []string `json:"values"`
+	Values  []any    `json:"values"`
 }
 
 func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startConsumerRequest, expectedRunID string) {
@@ -186,7 +187,8 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 		logger.Printf("warn: no run_id set — will consume all messages on topic")
 	}
 
-	tableCreated := map[string]bool{}
+	tableCreated  := map[string]bool{}
+	tableHeaders  := map[string][]string{}
 	tableSkipLogged := map[string]bool{}
 	batch := []incomingRow{}
 	totalInserted := 0
@@ -201,7 +203,7 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 			byTable[row.Table] = append(byTable[row.Table], row)
 		}
 		for table, rows := range byTable {
-			values := make([][]string, len(rows))
+			values := make([][]any, len(rows))
 			for i, r := range rows {
 				values[i] = r.Values
 			}
@@ -252,7 +254,9 @@ loop:
 		case m := <-msgCh:
 			hasRead = true
 			var row incomingRow
-			if err := json.Unmarshal(m.Value, &row); err != nil {
+			dec := json.NewDecoder(bytes.NewReader(m.Value))
+			dec.UseNumber()
+			if err := dec.Decode(&row); err != nil {
 				errLogger.Printf("unmarshal error: %v", err)
 				continue
 			}
@@ -269,6 +273,10 @@ loop:
 				}
 				logger.Printf("ensured table %q with %d columns", row.Table, len(row.Headers))
 				tableCreated[row.Table] = true
+				tableHeaders[row.Table] = row.Headers
+			} else if !headersMatch(tableHeaders[row.Table], row.Headers) {
+				errLogger.Printf("schema mismatch for table %q: expected %v, got %v — row skipped", row.Table, tableHeaders[row.Table], row.Headers)
+				continue
 			}
 			batch = append(batch, row)
 			if len(batch) >= req.BatchSize {
@@ -304,4 +312,16 @@ loop:
 	flush()
 	logger.Printf("done — total inserted: %d", totalInserted)
 	setStatus(StatusDone)
+}
+
+func headersMatch(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -99,6 +99,40 @@ func InferTypes(headers []string, rows [][]string) []string {
 	return types
 }
 
+// CastRow converts a raw string row into typed Go values using the inferred types.
+// BIGINT → int64, DOUBLE → float64, everything else stays string.
+// Empty values become nil.
+func CastRow(row []string, types []string) []any {
+	vals := make([]any, len(row))
+	for i, v := range row {
+		if strings.TrimSpace(v) == "" {
+			vals[i] = nil
+			continue
+		}
+		t := "TEXT"
+		if i < len(types) {
+			t = types[i]
+		}
+		switch t {
+		case "BIGINT":
+			if n, err := strconv.ParseInt(cleanNumeric(v), 10, 64); err == nil {
+				vals[i] = n
+			} else {
+				vals[i] = v
+			}
+		case "DOUBLE":
+			if f, err := strconv.ParseFloat(cleanNumeric(v), 64); err == nil {
+				vals[i] = f
+			} else {
+				vals[i] = v
+			}
+		default:
+			vals[i] = v
+		}
+	}
+	return vals
+}
+
 func cleanNumeric(s string) string {
 	// Strip common currency/formatting characters before numeric parsing.
 	s = strings.NewReplacer("$", "", "€", "", "£", "", "¥", "", ",", "").Replace(s)

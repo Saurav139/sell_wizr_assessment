@@ -30,7 +30,7 @@ type kafkaRow struct {
 	Table   string   `json:"table"`
 	Headers []string `json:"headers"`
 	Types   []string `json:"types"`
-	Values  []string `json:"values"`
+	Values  []any    `json:"values"`
 }
 
 func HandleProducerStart(s *AppState) http.HandlerFunc {
@@ -269,7 +269,7 @@ func runProducer(ctx context.Context, s *AppState, hub *internal.Hub, req startP
 		default:
 		}
 
-		msg := kafkaRow{Table: req.TableName, Headers: headers, Types: types, Values: row}
+		msg := kafkaRow{Table: req.TableName, Headers: headers, Types: types, Values: internal.CastRow(row, types)}
 		data, err := json.Marshal(msg)
 		if err != nil {
 			addErrors(1)

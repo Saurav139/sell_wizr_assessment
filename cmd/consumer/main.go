@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log"
@@ -17,7 +18,7 @@ type KafkaRow struct {
 	Table   string   `json:"table"`
 	Headers []string `json:"headers"`
 	Types   []string `json:"types"`
-	Values  []string `json:"values"`
+	Values  []any    `json:"values"`
 }
 
 func main() {
@@ -58,7 +59,7 @@ func main() {
 			byTable[row.Table] = append(byTable[row.Table], row)
 		}
 		for table, rows := range byTable {
-			values := make([][]string, len(rows))
+			values := make([][]any, len(rows))
 			for i, r := range rows {
 				values[i] = r.Values
 			}
@@ -80,7 +81,9 @@ func main() {
 		}
 
 		var row KafkaRow
-		if err := json.Unmarshal(m.Value, &row); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(m.Value))
+		dec.UseNumber()
+		if err := dec.Decode(&row); err != nil {
 			log.Printf("unmarshal error: %v", err)
 			continue
 		}

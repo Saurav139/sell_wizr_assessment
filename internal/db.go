@@ -37,7 +37,7 @@ func CreateTable(db *sql.DB, table string, headers []string, types []string) err
 
 // InsertRows batch-inserts rows using INSERT IGNORE (idempotent).
 // Returns (inserted, skipped, error) where skipped = len(rows) - inserted.
-func InsertRows(db *sql.DB, table string, headers []string, rows [][]string) (inserted int, skipped int, err error) {
+func InsertRows(db *sql.DB, table string, headers []string, rows [][]any) (inserted int, skipped int, err error) {
 	if len(rows) == 0 {
 		return 0, 0, nil
 	}
@@ -62,12 +62,12 @@ func InsertRows(db *sql.DB, table string, headers []string, rows [][]string) (in
 	defer stmt.Close()
 
 	for _, row := range rows {
-		args := make([]interface{}, len(headers)+1)
+		args := make([]any, len(headers)+1)
 		for i := range headers {
 			if i < len(row) {
 				args[i] = row[i]
 			} else {
-				args[i] = ""
+				args[i] = nil
 			}
 		}
 		args[len(headers)] = rowHash(row)
@@ -87,7 +87,15 @@ func InsertRows(db *sql.DB, table string, headers []string, rows [][]string) (in
 	return inserted, skipped, tx.Commit()
 }
 
-func rowHash(row []string) string {
-	h := sha256.Sum256([]byte(strings.Join(row, "|")))
+func rowHash(row []any) string {
+	parts := make([]string, len(row))
+	for i, v := range row {
+		if v == nil {
+			parts[i] = ""
+		} else {
+			parts[i] = fmt.Sprintf("%v", v)
+		}
+	}
+	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return fmt.Sprintf("%x", h)
 }
