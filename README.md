@@ -1,6 +1,6 @@
 # table pipe
 
-Point at any webpage with HTML tables. table pipe extracts, streams, and stores the data into MySQL through Kafka — no config files, no boilerplate.
+Point at any webpage with HTML tables. table pipe extracts, streams, and stores the data into MySQL through Kafka.
 
 ## Tech Stack
 
@@ -20,7 +20,7 @@ Point at any webpage with HTML tables. table pipe extracts, streams, and stores 
 ![Fetch](docs/fetch.png)
 
 - Paste any URL containing HTML tables and validate it in one click
-- Automatic rowspan and colspan parsing for complex table layouts
+- Automatic rows snd cols parsing for complex table layouts
 - Schema preview with inferred column types shown immediately after validation
 - Quick samples panel with preloaded URLs (Wikipedia, NHL stats, S&P 500, world population)
 - Environment panel shows live Kafka broker, topic, and MySQL DSN
@@ -30,9 +30,9 @@ Point at any webpage with HTML tables. table pipe extracts, streams, and stores 
 ![Schema](docs/schema.png)
 
 - Edit column names, types (TEXT, BIGINT, DOUBLE, DATE), and nullability before producing
-- Live 10-row data preview with paginated record navigation
+- Live 10-row data preview
 - Generated DDL shown in real time alongside schema editing
-- SHA-64 hash column added automatically for deduplication
+
 
 ### Step 3 - Produce
 
