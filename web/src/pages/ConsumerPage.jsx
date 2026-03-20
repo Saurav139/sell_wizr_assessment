@@ -60,10 +60,8 @@ export function ConsumerPage({ tableName: producedTable, streamedTopic }) {
       await api.startConsumer({
         kafka_brokers: cfg?.kafka_brokers ?? ['localhost:9092'],
         kafka_topic: selectedTopic,
-        consumer_group: 'table-consumer-ui',
         db_dsn: cfg?.db_dsn ?? 'root:@tcp(localhost:3306)/tabledata?parseTime=true',
         batch_size: batchSize,
-        reset_offset: resetOffset,
       })
       setStatus('running'); setStreamActive(true)
     } catch (e) { setError(e.message) }
@@ -299,7 +297,7 @@ export function ConsumerPage({ tableName: producedTable, streamedTopic }) {
                         <button
                           onClick={async () => {
                             if (!window.confirm(`Clear all rows from "${name}"?`)) return
-                            await api.truncate(name)
+                            await api.truncate(name, cfg?.kafka_brokers, selectedTopic)
                             fetchTables()
                             fetchTopicTables()
                           }}

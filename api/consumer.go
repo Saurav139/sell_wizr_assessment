@@ -13,17 +13,16 @@ import (
 )
 
 type startConsumerRequest struct {
-	KafkaBrokers  []string `json:"kafka_brokers"`
-	KafkaTopic    string   `json:"kafka_topic"`
-	ConsumerGroup string   `json:"consumer_group"`
-	DBDSN         string   `json:"db_dsn"`
-	BatchSize     int      `json:"batch_size"`
+	KafkaBrokers []string `json:"kafka_brokers"`
+	KafkaTopic   string   `json:"kafka_topic"`
+	DBDSN        string   `json:"db_dsn"`
+	BatchSize    int      `json:"batch_size"`
 }
 
 type consumerStatusResponse struct {
-	Status      string `json:"status"`
-	RowsInserted int   `json:"rows_inserted"`
-	DupsSkipped  int   `json:"dups_skipped"`
+	Status       string `json:"status"`
+	RowsInserted int    `json:"rows_inserted"`
+	DupsSkipped  int    `json:"dups_skipped"`
 	Table        string `json:"table"`
 }
 
@@ -46,23 +45,12 @@ func HandleConsumerStart(s *AppState) http.HandlerFunc {
 		if req.KafkaTopic == "" {
 			req.KafkaTopic = "table-records"
 		}
-		if req.ConsumerGroup == "" {
-			req.ConsumerGroup = "table-consumer-ui"
-		}
 		if req.DBDSN == "" {
 			req.DBDSN = "root:@tcp(localhost:3306)/tabledata?parseTime=true"
 		}
 		if req.BatchSize == 0 {
 			req.BatchSize = 50
 		}
-
-		// Always reset offset so re-ingesting after a CLEAR works correctly.
-		// Safe because INSERT IGNORE deduplicates all rows.
-		client := &kafka.Client{Addr: kafka.TCP(req.KafkaBrokers...)}
-		client.DeleteGroups(r.Context(), &kafka.DeleteGroupsRequest{
-			Addr:     kafka.TCP(req.KafkaBrokers...),
-			GroupIDs: []string{req.ConsumerGroup},
-		})
 
 		s.mu.Lock()
 		if s.consumer.status == StatusRunning {
@@ -177,14 +165,19 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 	}
 	logger.Printf("connected to database")
 
+	// Use a unique consumer group per run so StartOffset: FirstOffset is
+	// always honoured (no stale committed offset) and all partitions are read.
+	// Consumer groups are the only way kafka-go reads all partitions; without
+	// one it only reads partition 0, missing messages distributed by the Hash balancer.
+	groupID := fmt.Sprintf("tablepipe-%d", time.Now().UnixNano())
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     req.KafkaBrokers,
 		Topic:       req.KafkaTopic,
-		GroupID:     req.ConsumerGroup,
+		GroupID:     groupID,
 		StartOffset: kafka.FirstOffset,
 	})
 	defer reader.Close()
-	logger.Printf("consuming from topic %q (group=%s)", req.KafkaTopic, req.ConsumerGroup)
+	logger.Printf("consuming from topic %q (group=%s)", req.KafkaTopic, groupID)
 
 	tableCreated := map[string]bool{}
 	tableSkipLogged := map[string]bool{}
@@ -217,7 +210,7 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 				if ins > 0 {
 					logger.Printf("inserted %d rows into %s (total %d)", ins, table, totalInserted)
 				} else if skipped > 0 && !tableSkipLogged[table] {
-					logger.Printf("all rows already exist in %s — skipping", table)
+					logger.Printf("all rows already exist in %s — duplicates skipped", table)
 					tableSkipLogged[table] = true
 				}
 			}
@@ -228,7 +221,6 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 	msgCh := make(chan kafka.Message, req.BatchSize)
 	readErr := make(chan error, 1)
 
-	// Read messages in a separate goroutine so we can select on a ticker.
 	go func() {
 		for {
 			m, err := reader.FetchMessage(ctx)
@@ -242,26 +234,23 @@ func runConsumer(ctx context.Context, s *AppState, hub *internal.Hub, req startC
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	var pending []kafka.Message
-	hasRead := false
 
-	commitAndFlush := func() {
-		flush()
-		if len(pending) > 0 {
-			reader.CommitMessages(ctx, pending...)
-			pending = pending[:0]
-		}
-	}
+	// emptyTimeout: if no message arrives within 8s the topic is likely empty.
+	emptyTimer := time.NewTimer(8 * time.Second)
+	defer emptyTimer.Stop()
+	hasRead := false
 
 loop:
 	for {
 		select {
 		case m := <-msgCh:
-			hasRead = true
+			if !hasRead {
+				emptyTimer.Stop() // first message received — cancel empty-topic timeout
+				hasRead = true
+			}
 			var row incomingRow
 			if err := json.Unmarshal(m.Value, &row); err != nil {
 				errLogger.Printf("unmarshal error: %v", err)
-				pending = append(pending, m)
 				continue
 			}
 			if !tableCreated[row.Table] {
@@ -274,18 +263,21 @@ loop:
 				tableCreated[row.Table] = true
 			}
 			batch = append(batch, row)
-			pending = append(pending, m)
 			if len(batch) >= req.BatchSize {
-				commitAndFlush()
+				flush()
 			}
 
 		case <-ticker.C:
-			commitAndFlush()
-			// Auto-complete when we've read everything in the topic.
+			flush()
 			if hasRead && reader.Stats().Lag == 0 {
 				logger.Printf("caught up — no more messages in topic")
 				break loop
 			}
+
+		case <-emptyTimer.C:
+			errLogger.Printf("no messages received after 8s — topic may be empty or unreachable")
+			setStatus(StatusError)
+			return
 
 		case err := <-readErr:
 			if ctx.Err() != nil {
@@ -297,7 +289,7 @@ loop:
 		}
 	}
 
-	commitAndFlush()
+	flush()
 	logger.Printf("done — total inserted: %d", totalInserted)
 	setStatus(StatusDone)
 }
